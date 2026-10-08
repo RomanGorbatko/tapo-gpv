@@ -492,8 +492,13 @@ docker compose logs -f
 запису:
 
 ```bash
-docker compose run --rm sync --dry-run
+docker compose run --rm sync python -m tapo_scheduler.sync --dry-run
 ```
+
+Команду доводиться писати повністю, а не `sync --dry-run`: `init: true` ставить
+перед нею `tini`, і `docker compose run` підміняє **всю** команду образу, тож
+`--dry-run` дістається tini як ім'я програми — той падає з
+`exec --dry-run failed`.
 
 **Час завжди київський, який би пояс не був у сервера.** ГПВ публікується за
 київською добою, а розетка спрацьовує за власним настінним годинником, тож

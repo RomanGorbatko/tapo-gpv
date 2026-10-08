@@ -442,7 +442,9 @@ def _report_all(schedule: OutageSchedule) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--channel", default=DEFAULT_CHANNEL, help="public channel username")
-    parser.add_argument("--date", help="YYYY-MM-DD; defaults to today, else the newest posted")
+    parser.add_argument(
+        "--date", help="YYYY-MM-DD to treat as today; defaults to today in Kyiv"
+    )
     parser.add_argument("--queue", help="sub-queue id, e.g. 3.1; omit to list every queue")
     parser.add_argument("--posts", type=int, default=40, help="how far back to read")
     parser.add_argument("--lead", type=int, default=OFF_LEAD_MINUTES, help="minutes early to cut")
@@ -455,7 +457,11 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     on = date.fromisoformat(args.date) if args.date else None
 
-    calendar = load_calendar(args.channel, posts=args.posts)
+    # `on` goes into the fetch, not just the lookup: the parser resolves
+    # "сьогодні" and bare dates against the day it is told is today, so passing
+    # it here is what makes `--date` mean the day it names rather than merely
+    # selecting among what happened to load for the real current day.
+    calendar = load_calendar(args.channel, posts=args.posts, today=on)
     schedule = calendar.for_date(on) if on else calendar.today
     if schedule is None:
         where = f" for {on}" if on else " for today"
