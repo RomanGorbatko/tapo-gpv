@@ -65,6 +65,36 @@ NOTIFY_STATE = PROJECT_ROOT / ".state" / "notify.json"
 EVERY_DAY_BITS = DaysOfWeek.EVERY_DAY.bits()
 
 
+class PassLog:
+    """A pass's routine chatter, held back until the pass turns out to matter.
+
+    In ``--watch`` the pass runs every minute, and the calendar line plus one
+    line per plug are identical 1440 times a day. Printing them buries the one
+    pass that actually had news, and turns the log into something nobody reads.
+
+    So the routine lines are buffered and released only when the pass changed
+    something. Warnings are never held back: they go straight to stderr, where
+    they are visible whether or not anything else happened.
+    """
+
+    def __init__(self, *, always: bool = False):
+        # `always` is for one-off runs, where the user is watching and silence
+        # would look like the command had not run at all.
+        self.always = always
+        self._lines: list[str] = []
+
+    def say(self, line: str) -> None:
+        if self.always:
+            print(line)
+        else:
+            self._lines.append(line)
+
+    def flush(self) -> None:
+        for line in self._lines:
+            print(line)
+        self._lines.clear()
+
+
 def group_by_queue(targets: list[PlugTarget]) -> dict[str, list[PlugTarget]]:
     """Plugs sharing a sub-queue get one message and one rule computation.
 
@@ -95,24 +125,26 @@ def desired_keys(actions: tuple[Rule, ...]) -> list[tuple[int, bool, bool, int]]
 
 
 async def apply_to_plug(
-    plug: Plug, actions: tuple[Rule, ...], *, dry_run: bool
+    plug: Plug, actions: tuple[Rule, ...], *, dry_run: bool, log: PassLog | None = None
 ) -> bool:
     """Make the plug's rules match ``actions``. Returns True when it changed."""
+    if log is None:
+        log = PassLog(always=True)
     current = await plug.schedule_rules()
     have = sorted(rule_key(rule) for rule in current)
     want = desired_keys(actions)
     if have == want:
         return False
 
-    print(f"    was  ({len(have)} rules)")
+    log.say(f"    was  ({len(have)} rules)")
     for rule in current:
-        print(f"        {format_rule(rule)}")
-    print(f"    now  ({len(want)} rules)")
+        log.say(f"        {format_rule(rule)}")
+    log.say(f"    now  ({len(want)} rules)")
     for rule in actions:
-        print(f"        {rule}")
+        log.say(f"        {rule}")
 
     if dry_run:
-        print("    -- dry run, nothing written")
+        log.say("    -- dry run, nothing written")
         return True
 
     await plug.clear_schedule()
@@ -147,8 +179,8 @@ async def sync_once(
     calendar: Calendar = await asyncio.to_thread(
         load_calendar, channel, posts=posts, today=on
     )
-    if verbose or calendar.tomorrow is not None:
-        print(f"calendar : {calendar}")
+    log = PassLog(always=verbose)
+    log.say(f"calendar : {calendar}")
 
     schedule: OutageSchedule | None = calendar.today
     if schedule is None:
@@ -165,7 +197,7 @@ async def sync_once(
                 missing_schedule_message(today, kept=True),
             )
             return 2, False
-        print("note: no schedule for today, treating as no outages")
+        log.say("note: no schedule for today, treating as no outages")
 
     changed = False
     for queue, group in group_by_queue(targets).items():
@@ -176,15 +208,22 @@ async def sync_once(
                 actions = schedule.mirror_rules(queue, lead=lead, lag=lag)
             except KeyError as exc:
                 print(f"error: {group[0].ip}: {exc}", file=sys.stderr)
+                log.flush()  # the error is the news, but the context still helps
                 return 2, changed
 
+        queue_changed = False
         for target in group:
-            print(f"{target.ip}  queue {queue}  ({len(actions)} rules)")
+            log.say(f"{target.ip}  queue {queue}  ({len(actions)} rules)")
             plug = await connect(config, target.ip)
-            if await apply_to_plug(plug, actions, dry_run=dry_run):
-                changed = True
+            if await apply_to_plug(plug, actions, dry_run=dry_run, log=log):
+                queue_changed = True
             else:
-                print("    unchanged")
+                log.say("    unchanged")
+
+        changed = changed or queue_changed
+        # Released before the post, so the log reads in the order things happened.
+        if queue_changed:
+            log.flush()
 
         # One message per queue. The notifier remembers what it last announced
         # for this queue *and this date*, so a quiet poll is silent, a revision
@@ -260,7 +299,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(NOTIFY_STATE),
         help="where to remember what was last announced",
     )
-    parser.add_argument("-v", "--verbose", action="store_true", help="always print the calendar")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="print every pass, not only the ones that changed something",
+    )
     return parser
 
 
@@ -303,7 +347,9 @@ async def main(argv: list[str] | None = None) -> int:
         assume_no_outages=args.assume_no_outages,
         targets=targets,
         notifier=notifier,
-        verbose=args.verbose,
+        # A one-off run is something the user is watching, so it reports what it
+        # found. A watcher runs every minute and speaks only when there is news.
+        verbose=args.verbose or not args.watch,
     )
 
     while True:

@@ -17,6 +17,7 @@ from tapo_scheduler.config import Config, PlugTarget
 from tapo_scheduler.outage import Rule
 from tapo_scheduler.sync import (
     EVERY_DAY_BITS,
+    PassLog,
     apply_to_plug,
     desired_keys,
     select_targets,
@@ -160,6 +161,45 @@ def test_no_outages_clears_the_plug() -> None:
     assert apply(plug, ()) is True
     assert plug.cleared == 1
     assert plug.written == []
+
+
+# --- logging ----------------------------------------------------------------
+
+
+def test_a_quiet_pass_holds_its_chatter(capsys) -> None:
+    """The watcher runs every minute; the routine lines are the same each time."""
+    log = PassLog()
+    log.say("calendar : today 12 queues")
+    log.say("192.168.68.62  queue 5.1  (6 rules)")
+    log.say("    unchanged")
+    assert capsys.readouterr().out == ""
+
+    log.flush()
+    assert "unchanged" in capsys.readouterr().out
+
+
+def test_a_changed_pass_releases_what_it_held(capsys) -> None:
+    log = PassLog()
+    plug = FakePlug(rules=[clock_rule(0, False)], readback=IN_SYNC)
+    assert asyncio.run(apply_to_plug(plug, ACTIONS, dry_run=False, log=log)) is True
+    assert capsys.readouterr().out == ""
+
+    log.flush()
+    out = capsys.readouterr().out
+    assert "was" in out and "now" in out
+
+
+def test_a_one_off_run_says_everything_immediately(capsys) -> None:
+    """A single run is being watched; silence would look like it never ran."""
+    log = PassLog(always=True)
+    log.say("    unchanged")
+    assert "unchanged" in capsys.readouterr().out
+
+
+def test_apply_without_a_log_still_prints(capsys) -> None:
+    plug = FakePlug(rules=[clock_rule(0, False)], readback=IN_SYNC)
+    asyncio.run(apply_to_plug(plug, ACTIONS, dry_run=False))
+    assert "was" in capsys.readouterr().out
 
 
 # --- target selection -------------------------------------------------------
