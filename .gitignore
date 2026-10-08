@@ -1,0 +1,25 @@
+# Secrets. `.env` holds the Tapo password and the Telegram bot token; `.env.example`
+# documents the variable names without values.
+.env
+
+# Runtime output. `.state/` remembers what was last posted to the channel and
+# `schedule-backups/` holds rule dumps read off the plugs -- both are per-install,
+# not source.
+.state/
+schedule-backups/
+*.log
+
+# Local editor and tooling state, not part of the project.
+.idea/
+.claude/
+.vscode/
+
+venv/
+.venv/
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store

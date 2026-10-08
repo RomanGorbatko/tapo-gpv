@@ -1,0 +1,3 @@
+tapo==0.11.1
+zeroconf
+python-dotenv

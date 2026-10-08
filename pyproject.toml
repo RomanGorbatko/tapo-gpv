@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tapo-gpv"
+version = "0.1.0"
+description = "Drive Tapo plugs from the Cherkasy oblast power-outage schedule (ГПВ)"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Roman Gorbatko" }]
+requires-python = ">=3.11"
+keywords = ["tapo", "smart-plug", "power-outage", "гпв", "cherkasy", "home-automation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Home Automation",
+]
+dependencies = [
+    "tapo==0.11.1",
+    "zeroconf",
+    "python-dotenv",
+]
+
+[project.urls]
+Homepage = "https://github.com/RomanGorbatko/tapo-gpv"
+Repository = "https://github.com/RomanGorbatko/tapo-gpv"
+Issues = "https://github.com/RomanGorbatko/tapo-gpv/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
