@@ -1,0 +1,16 @@
+# The Dockerfile copies named paths rather than the tree, so none of this
+# would be copied today. It is here so that a future `COPY . .` cannot put
+# secrets into an image layer.
+.env
+.state/
+schedule-backups/
+
+# Build context hygiene -- none of it belongs in an image.
+.git
+.idea
+.claude
+venv
+.pytest_cache
+tests
+__pycache__
+*.egg-info

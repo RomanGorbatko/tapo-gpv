@@ -15,6 +15,8 @@ from typing import Any
 from tapo import ApiClient
 from tapo.requests import DaysOfWeek, ScheduleTime
 
+from . import clock
+
 # Models whose handler reports power and energy. Everything else is on/off only.
 ENERGY_MODELS = {"p110", "p110m", "p115"}
 
@@ -53,6 +55,33 @@ def format_days(days: DaysOfWeek | None) -> str:
     if bits == 0b1000001:
         return "weekend"
     return ",".join(name for bit, name in enumerate(DAY_NAMES) if bits >> bit & 1)
+
+
+def clock_warning(raw: dict[str, Any]) -> str | None:
+    """Complain when a plug keeps a different timezone than the schedule's.
+
+    The rules written to a plug are wall-clock times, and the device fires them
+    on its own clock. A plug set to another region therefore shifts every rule
+    by the difference -- and nothing else in the chain would look wrong, since
+    the calendar, the diff and the post all agree with each other. This is the
+    one failure the rest of the program cannot see, so it is worth saying out
+    loud.
+
+    Returns a message, or None when the plug is on Kyiv time (or says nothing
+    about its region, which is not something to guess about).
+    """
+    region = raw.get("region")
+    if not region or region == clock.KYIV.key:
+        return None
+    offset = raw.get("time_diff")
+    # `time_diff` is minutes east of UTC. It is reported as the standard offset
+    # on these devices and does not follow summer time, so it is context for
+    # the warning rather than something to check against.
+    detail = f" (UTC{offset // 60:+d})" if isinstance(offset, int) else ""
+    return (
+        f"plug timezone is {region}{detail}, not {clock.KYIV.key} -- its rules "
+        f"fire on its own clock, so every time written will land shifted"
+    )
 
 
 def rule_key(rule: Any) -> tuple[int, bool, bool, int]:

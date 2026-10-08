@@ -1,0 +1,22 @@
+services:
+  sync:
+    build: .
+    restart: unless-stopped
+    # Python as PID 1 ignores SIGTERM by default, so `docker stop` would wait
+    # out its timeout and kill the container instead of letting it exit.
+    init: true
+    env_file: .env
+    environment:
+      # A backstop, not the source of truth. Anything in the program that asks
+      # for the time goes through `clock.py`, which is pinned to Kyiv in code.
+      # This keeps third-party logging and any stray `datetime.now()` in step.
+      TZ: Europe/Kyiv
+    volumes:
+      # A named volume, deliberately not a bind mount. Docker creates a missing
+      # host path as root, and this container runs as uid 10001 -- so a bind
+      # mount to a directory that does not exist yet is unwritable, and the
+      # state file would fail to save without saying so.
+      - state:/app/.state
+
+volumes:
+  state:

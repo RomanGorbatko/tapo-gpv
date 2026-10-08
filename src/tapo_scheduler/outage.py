@@ -52,8 +52,9 @@ import json
 import re
 import sys
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 
+from . import clock
 from .telegram import DEFAULT_CHANNEL, Post, fetch_posts
 
 MINUTES_PER_DAY = 24 * 60
@@ -301,7 +302,7 @@ def parse_schedule(
     if month is None:
         return None
 
-    today = today or datetime.now(timezone.utc).date()
+    today = today or clock.today()
     try:
         when = date(today.year, month, int(match.group(1)))
     except ValueError:
@@ -403,11 +404,11 @@ def load_calendar(
 ) -> Calendar:
     """Fetch the schedules for today and tomorrow.
 
-    ``today`` defaults to the machine's local date, which is the wall clock the
-    plugs and the operator's readers both show. Pass it explicitly to make a
-    run reproducible.
+    ``today`` defaults to today in Kyiv -- the wall clock the operator
+    publishes under and the plugs fire on, wherever this machine happens to
+    sit. Pass it explicitly to make a run reproducible.
     """
-    today = today or datetime.now().date()
+    today = today or clock.today()
     return Calendar.from_schedules(
         collect_schedules(channel, posts=posts, today=today), today
     )

@@ -21,12 +21,12 @@ import argparse
 import asyncio
 import json
 import sys
-from datetime import datetime
 from pathlib import Path
 
 from tapo.requests import DaysOfWeek, ScheduleRule
 from tapo.responses import PowerState
 
+from . import clock
 from .config import PROJECT_ROOT, Config
 from .plug import Plug, connect, format_rule
 
@@ -86,11 +86,11 @@ async def cmd_list(config: Config, ips: list[str]) -> int:
 
 async def cmd_backup(config: Config, ips: list[str]) -> int:
     BACKUP_DIR.mkdir(exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = clock.now().strftime("%Y%m%d-%H%M%S")
     for plug in await target_plugs(config, ips):
         rules = await plug.schedule_rules()
         payload = {
-            "captured_at": datetime.now().isoformat(timespec="seconds"),
+            "captured_at": clock.now().isoformat(timespec="seconds"),
             "ip": plug.ip,
             "model": plug.device_model,
             "rules": [rule.to_dict() for rule in rules],

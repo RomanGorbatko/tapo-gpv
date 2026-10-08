@@ -22,6 +22,7 @@ from tapo_scheduler.sync import (
     desired_keys,
     select_targets,
     to_device_rules,
+    warn_on_foreign_clock,
 )
 
 EVERY_DAY = DaysOfWeek.EVERY_DAY.bits()
@@ -61,6 +62,11 @@ def sunrise_rule() -> FakeRule:
     return FakeRule(ScheduleTime.Sunrise(0), on=False)
 
 
+class _Info:
+    def __init__(self, raw):
+        self.raw = raw
+
+
 class FakePlug:
     """A plug that records what it was asked to do.
 
@@ -69,12 +75,19 @@ class FakePlug:
     than derived from what was sent.
     """
 
-    def __init__(self, rules=(), readback=None):
+    def __init__(self, rules=(), readback=None, region="Europe/Kyiv"):
         self.ip = "192.168.68.62"
         self._rules = list(rules)
         self.readback = list(readback) if readback is not None else None
         self.written: list[object] = []
         self.cleared = 0
+        # `connect` fetches this before anything else, and `clock_warning`
+        # reads it. `time_diff` is the standard-offset field these devices
+        # report -- 120 for Kyiv, even in summer.
+        self._info = _Info({"region": region, "time_diff": 120})
+
+    async def info(self):
+        return self._info
 
     async def schedule_rules(self):
         return list(self._rules)
@@ -240,3 +253,48 @@ def test_select_targets_rejects_an_unknown_ip() -> None:
 
 def test_select_targets_needs_something_to_do() -> None:
     assert select_targets(config_with(), None) is None
+
+
+# --- the plug's own clock --------------------------------------------------
+#
+# Rules are wall-clock times the device fires itself, so a plug on another
+# region shifts every one of them. The calendar, the diff and the post would
+# all keep agreeing with each other while the boiler ran at the wrong hours,
+# which is why this is worth interrupting a quiet pass for.
+
+
+def warn(plug: FakePlug, checked: set[str] | None = None) -> set[str]:
+    checked = set() if checked is None else checked
+    asyncio.run(warn_on_foreign_clock(plug, checked))
+    return checked
+
+
+def test_a_plug_on_another_region_is_reported(capsys) -> None:
+    warn(FakePlug(region="America/New_York"))
+    err = capsys.readouterr().err
+    assert "America/New_York" in err
+    assert "Europe/Kyiv" in err
+    assert FakePlug().ip in err
+
+
+def test_a_plug_is_reported_once_per_process(capsys) -> None:
+    """The watcher runs every minute; a standing warning would bury the log."""
+    plug = FakePlug(region="America/New_York")
+    checked = warn(plug)
+    warn(plug, checked)
+    assert capsys.readouterr().err.count("America/New_York") == 1
+
+
+def test_two_plugs_are_each_reported(capsys) -> None:
+    """The dedupe is per IP, not a single "already warned" flag."""
+    first = FakePlug(region="America/New_York")
+    second = FakePlug(region="America/New_York")
+    second.ip = "192.168.68.63"
+    checked = warn(first)
+    warn(second, checked)
+    assert capsys.readouterr().err.count("America/New_York") == 2
+
+
+def test_a_plug_on_kyiv_time_is_not_reported(capsys) -> None:
+    warn(FakePlug())
+    assert capsys.readouterr().err == ""

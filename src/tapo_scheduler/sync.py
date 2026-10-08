@@ -33,12 +33,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
 from tapo.requests import DaysOfWeek, ScheduleRule
 from tapo.responses import PowerState
 
+from . import clock
 from .config import PROJECT_ROOT, Config, PlugTarget
 from .notify import (
     Notifier,
@@ -56,7 +57,7 @@ from .outage import (
     format_date_uk,
     load_calendar,
 )
-from .plug import Plug, connect, format_rule, rule_key
+from .plug import Plug, clock_warning, connect, format_rule, rule_key
 
 # Where the notifier remembers what it last announced, so a restart does not
 # re-post the schedule that is already in the channel.
@@ -160,6 +161,24 @@ async def apply_to_plug(
     return True
 
 
+async def warn_on_foreign_clock(plug: Plug, checked: set[str]) -> None:
+    """Report a plug whose own clock is not on Kyiv time, once per process.
+
+    The rules on a plug are wall-clock times the device fires itself, so a plug
+    set to another region shifts every one of them while the calendar, the diff
+    and the post all keep agreeing with each other. Worth interrupting a quiet
+    pass for -- but not worth repeating every minute, hence the set of plugs
+    already looked at rather than already complained about.
+    """
+    if plug.ip in checked:
+        return
+    checked.add(plug.ip)
+    # `info()` was already fetched by `connect`, so this costs no round trip.
+    warning = clock_warning((await plug.info()).raw)
+    if warning is not None:
+        print(f"warning: {plug.ip}: {warning}", file=sys.stderr)
+
+
 async def sync_once(
     config: Config,
     *,
@@ -172,12 +191,16 @@ async def sync_once(
     assume_no_outages: bool,
     targets: list[PlugTarget],
     notifier: Notifier,
+    checked: set[str],
     verbose: bool,
 ) -> tuple[int, bool]:
     """One pass. Returns ``(exit code, whether anything was written)``."""
-    today = on or datetime.now().date()
+    # Resolved once and handed to `load_calendar`, so the date this pass speaks
+    # of and the date it fetches are the same value rather than two separate
+    # readings of the clock.
+    today = on or clock.today()
     calendar: Calendar = await asyncio.to_thread(
-        load_calendar, channel, posts=posts, today=on
+        load_calendar, channel, posts=posts, today=today
     )
     log = PassLog(always=verbose)
     log.say(f"calendar : {calendar}")
@@ -215,6 +238,7 @@ async def sync_once(
         for target in group:
             log.say(f"{target.ip}  queue {queue}  ({len(actions)} rules)")
             plug = await connect(config, target.ip)
+            await warn_on_foreign_clock(plug, checked)
             if await apply_to_plug(plug, actions, dry_run=dry_run, log=log):
                 queue_changed = True
             else:
@@ -347,6 +371,9 @@ async def main(argv: list[str] | None = None) -> int:
         assume_no_outages=args.assume_no_outages,
         targets=targets,
         notifier=notifier,
+        # Shared across passes so a mis-set plug is reported once, not 1440
+        # times a day.
+        checked=set(),
         # A one-off run is something the user is watching, so it reports what it
         # found. A watcher runs every minute and speaks only when there is news.
         verbose=args.verbose or not args.watch,
@@ -365,7 +392,7 @@ async def main(argv: list[str] | None = None) -> int:
             return 1 if notifier.failures else code
         # In watch mode a quiet pass stays quiet, so a slow log means "no news".
         if changed or notifier.failures:
-            print(f"pass at {datetime.now():%Y-%m-%d %H:%M}  changed={changed}")
+            print(f"pass at {clock.now():%Y-%m-%d %H:%M}  changed={changed}")
         await asyncio.sleep(args.interval)
 
 
